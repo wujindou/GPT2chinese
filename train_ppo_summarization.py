@@ -1,4 +1,5 @@
 import os
+os.environ['WANDB_DISABLED']="true"
 from typing import List
 
 import torch
@@ -18,32 +19,33 @@ from trlx.data.configs import (
 )
 from trlx.models.modeling_ppo import PPOConfig
 
-REWARD_CHECKPOINT_PATH = "reward_model/rm_checkpoint/pytorch_model.bin"
+model_name = '/home/jovyan/summarization_data/gpt2_chinese'
+REWARD_CHECKPOINT_PATH = "rm_checkpoint/checkpoint-9500/pytorch_model.bin"
 if not os.path.exists(REWARD_CHECKPOINT_PATH):
     os.makedirs("reward_model/rm_checkpoint", exist_ok=True)
     os.system(
         f"wget -O {REWARD_CHECKPOINT_PATH} \
         https://huggingface.co/CarperAI/openai_summarize_tldr_rm_checkpoint/resolve/main/pytorch_model.bin"
     )
-SFT_MODEL_PATH = "/home/jovyan/summarization_data/gpt2_chiense/"
+SFT_MODEL_PATH = "gpt2-supervised-text-checkpoint"
 
 config = TRLConfig(
     train=TrainConfig(
-        seq_length=550,
-        epochs=50,
-        total_steps=100000,
+        seq_length=128,
+        epochs=3,
+        total_steps=20000,
         batch_size=4,
-        checkpoint_interval=10000,
-        eval_interval=200,
+        checkpoint_interval=500,
+        eval_interval=1000,
         pipeline="PromptPipeline",
         trainer="AcceleratePPOTrainer",
     ),
     model=ModelConfig(
-        model_path="CarperAI/openai_summarize_tldr_sft",
+        model_path=SFT_MODEL_PATH,
         num_layers_unfrozen=8,
     ),
     tokenizer=TokenizerConfig(
-        tokenizer_path="gpt2",
+        tokenizer_path=model_name,
         truncation_side="right",
     ),
     optimizer=OptimizerConfig(
@@ -100,6 +102,7 @@ def convert_data(dataset):
             best = {'query':d['query'],'reply':reply['reply'],'dislike':reply['dislike'],'like':reply['like'],'difference':reply['like']-reply['dislike']}
       if best:
         best['prompt'] =  f"""用户:{best["query"]}#小爱同学:"""
+        best['prompt'] = best['prompt'].replace(' ','')
         best['label'] = best['reply']
         new_dataset.append(best)
   return new_dataset
@@ -110,8 +113,10 @@ data_path = './nlpcc-2023-shared-task-9/datasets/'
 train_file_name = 'datasets_train.jsonl'
 dev_file_name = 'datasets_dev.jsonl'
 
-train_data = [json.loads(lin) for lin in open(data_path+'/'+train_file_name,'r',encoding='utf-8').readlines()]
-dev_data = [json.loads(lin) for lin in open(data_path+'/'+dev_file_name,'r',encoding='utf-8').readlines()]
+train_data = [json.loads(lin) for lin in open(data_path+'/'+train_file_name,'r',encoding='utf-8').readlines()][:100]
+dev_data = [json.loads(lin) for lin in open(data_path+'/'+dev_file_name,'r',encoding='utf-8').readlines()][:100]
+tran_data = train_data
+dev_data = dev_data
 
 converted_train_data = convert_data(train_data)
 converted_dev_data = convert_data(dev_data)
@@ -119,14 +124,18 @@ converted_dev_data = convert_data(dev_data)
 
 if __name__ == "__main__":
     # Load the pre-trained reward model
-    model_name = '/home/jovyan/summarization_data/gpt2_chiense'
+    model_name = '/home/jovyan/summarization_data/gpt2_chinese'
     rw_tokenizer = AutoTokenizer.from_pretrained(model_name)
-    # rw_tokenizer.pad_token = rw_tokenizer.eos_token
-    rw_model = GPTRewardModel(SFT_MODEL_PATH)
+   # rw_tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    print('hhhhh')
+    print(rw_tokenizer.pad_token)
+    #sys.exit(1)
+    #rw_tokenizer.pad_token = rw_tokenizer.pad_token
+    rw_model = GPTRewardModel(model_name)
     rw_model.load_state_dict(torch.load(REWARD_CHECKPOINT_PATH))
     rw_model.half()
     rw_model.eval()
-    rw_device = torch.device("cuda:{}".format(1))  # set reward model device
+    rw_device = torch.device("cuda:{}".format(0))  # set reward model device
     rw_model.to(rw_device)
 
     def get_scores(samples: List[str]):
@@ -178,7 +187,9 @@ if __name__ == "__main__":
         return formatted_prompts
 
     def reward_fn(samples: List[str], **kwargs):
-        original_samples = [text.split("小爱同学:")[0] + "#小爱同学:" for text in samples]
+        print("generate "+samples[0])
+        original_samples = [text.split("# 小 爱 同 学 :")[0] + "# 小 爱 同 学 :" for text in samples]
+        print(original_samples[0])
         original_samples = [text + post_summary_dict[text.strip()] for text in original_samples]
         original_scores = get_scores(original_samples)
         scores = get_scores(samples)
@@ -187,6 +198,12 @@ if __name__ == "__main__":
 
     tokenizer = AutoTokenizer.from_pretrained(config.tokenizer.tokenizer_path)
     # tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.pad_token ='[PAD]'
+    tokenizer.eos_token='[PAD]'
+    print(tokenizer.pad_token_id)
+    print(tokenizer.eos_token)
+    print(tokenizer.eos_token)
+    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
     tokenizer.padding_side = "left"
     max_length_input = config.train.seq_length - config.method.gen_kwargs["max_new_tokens"]
 
@@ -208,10 +225,10 @@ if __name__ == "__main__":
     val_prompts = get_prompt_dataset(val_posts, max_length_input)
     for i in range(len(val_prompts)):
         post_summary_dict[val_prompts[i]] = val_summaries[i]
-
     trainer = trlx.train(
         reward_fn=reward_fn,
         prompts=train_prompts,
         eval_prompts=val_prompts[0:1000],  # sampling 1000 validation prompts for evaluation speed in training
         config=config,
     )
+    trainer.save_pretrained('ppo_model')
