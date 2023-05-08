@@ -47,11 +47,11 @@ def convert_data(dataset):
         if first['like']-first['dislike'] == second['like'] - second['dislike']:
             continue
         if first['like']-first['dislike']>second['like'] - second['dislike']:
-            chosen_summary = '小爱同学:'+first['reply']
-            rejected_summary ='小爱同学:'+second['reply']
+            chosen_summary = '#小爱同学:'+first['reply']
+            rejected_summary ='#小爱同学:'+second['reply']
         else:
-            chosen_summary = '小爱同学:'+second['reply']
-            rejected_summary ='小爱同学:'+first['reply']
+            chosen_summary = '#小爱同学:'+second['reply']
+            rejected_summary ='#小爱同学:'+first['reply']
         pair["chosen"] = prompt + chosen_summary
         pair["rejected"] = prompt + rejected_summary
         pairs.append(pair)
