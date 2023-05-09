@@ -6,3 +6,5 @@ GPT2中文文本生成例子
 
 
 Ttrlx==0.3.0 
+
+kaggle_path:https://www.kaggle.com/jackiewu/ppo-summary
