@@ -72,24 +72,16 @@ def generate_and_tokenize_prompt(data_point):
                 user_prompt,
                 truncation=True,
                 max_length=64,
-                padding="max_length",
             )["input_ids"]
         )
         - 1
     )  # no eos token
-    end_idx = tokenizer(
-                user_prompt,
-                truncation=True,
-                max_length=64,
-                padding="max_length",
-            )["input_ids"].index(102)
     full_tokens = tokenizer(
         user_prompt + data_point["reply"],
         truncation=True,
         max_length=128 + 1,
         padding="max_length",
     )["input_ids"][:-1]
-    len_user_prompt_tokens = min(end_idx,63)
     return {
         "input_ids": full_tokens,
         "labels": [-100] * len_user_prompt_tokens
